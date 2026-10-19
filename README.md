@@ -172,3 +172,8 @@ ADLS shortcuts at this storage account with `-AuthMode Key`. Cross-tenant worksp
 - Data-quality expectations as a gold table (row counts, rejected rows) surfaced in the dashboard.
 - Purview scanning of the storage account for lineage and classification once real personal data lands.
 - Host the dashboard on Azure Container Apps behind Entra ID (Easy Auth).
+
+## Licence
+
+MIT; see [`LICENSE`](LICENSE). The icons in `tools/scenes/lucide` are from [Lucide](https://lucide.dev)
+(ISC licence, notice kept in each file). All data in the repo is synthetic.
