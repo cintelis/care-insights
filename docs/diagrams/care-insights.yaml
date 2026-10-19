@@ -1,0 +1,181 @@
+# Care Insights POC - architecture diagrams (drawgen spec)
+# Build:  C:\code\drawio-tools\.venv\Scripts\drawgen build docs\diagrams\care-insights.yaml -o docs\assets\care-insights.drawio.svg
+pages:
+  # ---------------------------------------------------------------- page 1
+  - id: architecture
+    title: Care Insights POC - solution architecture
+    subtitle: Open lakehouse - ADLS Gen2 holds every layer, Microsoft Fabric is the compute, no Power BI
+    zones:
+      - {id: z_src, label: Source systems (synthetic), x: 40, y: 100, w: 240, h: 520, colour: grey}
+      - {id: z_fabric, label: Microsoft Fabric - workspace care-insights-poc, x: 360, y: 100, w: 760, h: 300, colour: purple}
+      - {id: z_azure, label: Azure subscription - rg-care-insights-poc (Australia East), x: 360, y: 460, w: 760, h: 320, colour: blue}
+      - {id: z_cons, label: Consumers, x: 1200, y: 100, w: 300, h: 680, colour: teal}
+      - {id: z_id, label: Identity - Entra ID (keyless), x: 40, y: 680, w: 240, h: 240, colour: red}
+    nodes:
+      # sources
+      - {id: crm, label: CRM extracts, sub: "participants, workers - CSV", kind: external, zone: z_src, x: 60, y: 160, w: 200}
+      - {id: roster, label: Rostering system, sub: bookings - monthly CSV, kind: external, zone: z_src, x: 60, y: 270, w: 200}
+      - {id: mobile, label: Worker mobile app, sub: check-in / out - JSON Lines, kind: external, zone: z_src, x: 60, y: 380, w: 200}
+      - {id: invoices, label: Provider invoices, sub: CSV - dd/MM/yyyy dates, kind: external, zone: z_src, x: 60, y: 490, w: 200}
+      # fabric
+      - {id: sched, label: Daily schedule, sub: 06:00 AEST - RunNotebook, kind: step, zone: z_fabric, x: 380, y: 140, w: 180}
+      - {id: nb, label: Notebook nb_care_medallion, sub: PySpark - bronze > silver > gold, kind: worker, zone: z_fabric, x: 600, y: 200, w: 280, h: 90}
+      - {id: lh, label: Lakehouse lh_care, sub: Files/raw + Files/lake shortcuts, kind: service, zone: z_fabric, x: 940, y: 150, w: 160}
+      - {id: sql, label: SQL endpoint, sub: Tables/gold_* shortcuts, kind: service, zone: z_fabric, x: 940, y: 300, w: 160}
+      # azure
+      - {id: raw, label: raw container, sub: landing zone - files as received, kind: datastore, zone: z_azure, x: 400, y: 520, w: 180, h: 100}
+      - {id: lake, label: lake container, sub: bronze / silver / gold Delta + _pipeline SQL, kind: datastore, zone: z_azure, x: 630, y: 520, w: 220, h: 100}
+      - {id: cap, label: Fabric capacity F2, sub: paused when idle (~US$0.36/h), kind: service, zone: z_azure, x: 900, y: 690, w: 200}
+      # consumers
+      - {id: ops, label: Care and finance team, kind: actor, zone: z_cons, x: 1290, y: 150, w: 120, h: 80}
+      - {id: dash, label: Care Insights dashboard, sub: Streamlit + DuckDB - no Power BI, kind: ui, zone: z_cons, x: 1230, y: 530, w: 240, h: 76}
+      - {id: other, label: Other Delta engines, sub: Databricks - Synapse - Polars, kind: external, zone: z_cons, x: 1230, y: 680, w: 240}
+      # identity
+      - {id: user, label: Entra user login, sub: uploads + dashboard reads, kind: security, zone: z_id, x: 60, y: 730, w: 200}
+      - {id: wsid, label: Workspace identity, sub: Fabric -> ADLS, kind: security, zone: z_id, x: 60, y: 830, w: 200}
+      # status
+      - {id: status, label: "Status Oct 2026: ADLS, data, pipeline SQL and dashboard deployed + tested. Fabric run pending tenant enablement", kind: note, x: 360, y: 930, w: 760, h: 60}
+    edges:
+      - {from: z_src, to: raw, label: batch files, style: data, exit: right, entry: left, points: [[320, 360], [320, 570]]}
+      - {from: raw, to: nb, label: read via Files/raw, style: data, exit: top, entry: left, points: [[490, 245]]}
+      - {from: nb, to: lake, label: read SQL / write Delta via Files/lake, style: data, exit: bottom, entry: top, both: true}
+      - {from: sched, to: nb, label: trigger, style: async, exit: right, entry: top, points: [[740, 172]]}
+      - {from: lh, to: nb, label: default lakehouse, style: weak, exit: left, entry: right}
+      - {from: lh, to: sql, label: gold tables, style: weak, exit: bottom, entry: top}
+      - {from: cap, to: z_fabric, label: compute, style: weak, exit: right, entry: right, points: [[1150, 722], [1150, 250]]}
+      - {from: lake, to: dash, label: delta_scan (Entra auth), style: data, exit: right, entry: left}
+      - {from: lake, to: other, label: open Delta / Parquet, style: weak, exit: bottom, entry: left, points: [[740, 650], [1190, 650], [1190, 712]]}
+      - {from: dash, to: ops, label: HTTPS, exit: top, entry: bottom}
+      - {from: sql, to: ops, label: ad-hoc T-SQL, style: weak, exit: right, entry: left}
+      - {from: user, to: raw, label: upload (azcopy), style: weak, exit: right, entry: bottom, points: [[490, 762]]}
+      - {from: wsid, to: z_azure, label: RBAC (no keys), style: weak, exit: right, entry: bottom, points: [[740, 862]]}
+    legend: true
+
+  # ---------------------------------------------------------------- page 2
+  - id: medallion
+    title: Medallion lineage - bronze > silver > gold
+    subtitle: Every table is Delta in ADLS (lake container). Silver and gold are plain Spark SQL files, run in order
+    zones:
+      - {id: z_b, label: "Bronze - raw as Delta", x: 40, y: 100, w: 260, h: 720, colour: amber}
+      - {id: z_s, label: "Silver - typed, de-duplicated, conformed", x: 340, y: 100, w: 760, h: 720, colour: grey}
+      - {id: z_g, label: "Gold - business answers", x: 1140, y: 100, w: 300, h: 720, colour: green}
+    nodes:
+      # bronze
+      - {id: b_part, label: participants, kind: datastore, zone: z_b, x: 80, y: 160, w: 180, h: 60}
+      - {id: b_svc, label: service_types, kind: datastore, zone: z_b, x: 80, y: 250, w: 180, h: 60}
+      - {id: b_book, label: bookings, kind: datastore, zone: z_b, x: 80, y: 340, w: 180, h: 60}
+      - {id: b_ev, label: visit_events, kind: datastore, zone: z_b, x: 80, y: 430, w: 180, h: 60}
+      - {id: b_wk, label: workers, kind: datastore, zone: z_b, x: 80, y: 520, w: 180, h: 60}
+      - {id: b_inv, label: invoices, kind: datastore, zone: z_b, x: 80, y: 610, w: 180, h: 60}
+      - {id: b_prov, label: providers, kind: datastore, zone: z_b, x: 80, y: 700, w: 180, h: 60}
+      # silver - typed 1:1
+      - {id: s_part, label: 01 participants, sub: budget as DOUBLE, kind: step, zone: z_s, x: 380, y: 160, w: 200, h: 60}
+      - {id: s_svc, label: 04 service_types, sub: price caps, kind: step, zone: z_s, x: 380, y: 250, w: 200, h: 60}
+      - {id: s_book, label: 05 bookings, sub: latest version per booking, kind: step, zone: z_s, x: 380, y: 340, w: 200, h: 60}
+      - {id: s_ev, label: 06 visit_events, sub: drop mobile retries, kind: step, zone: z_s, x: 380, y: 430, w: 200, h: 60}
+      - {id: s_wk, label: 02 workers, kind: step, zone: z_s, x: 380, y: 520, w: 200, h: 60}
+      - {id: s_inv, label: 08 invoices, sub: "AU dates, duplicate / cap flags", kind: step, zone: z_s, x: 380, y: 610, w: 200, h: 60}
+      - {id: s_prov, label: 03 providers, kind: step, zone: z_s, x: 380, y: 700, w: 200, h: 60}
+      # silver - derived
+      - {id: s_visits, label: 07 visits, sub: on_time / late / missed / future + cost, kind: step, zone: z_s, x: 640, y: 375, w: 220, h: 70}
+      - {id: s_spend, label: 09 spend, sub: visits + accepted invoices, kind: step, zone: z_s, x: 860, y: 600, w: 200, h: 64}
+      # gold
+      - {id: g_budget, label: budget_utilisation, sub: forecast vs budget per quarter, kind: datastore, zone: z_g, x: 1170, y: 170, w: 240, h: 80}
+      - {id: g_rel, label: visit_reliability, sub: daily by region + service, kind: datastore, zone: z_g, x: 1170, y: 350, w: 240, h: 80}
+      - {id: g_punct, label: worker_punctuality, sub: "late rate, needs_review flag", kind: datastore, zone: z_g, x: 1170, y: 490, w: 240, h: 80}
+      - {id: g_exc, label: invoice_exceptions, sub: one row per problem + $ at risk, kind: datastore, zone: z_g, x: 1170, y: 705, w: 240, h: 80}
+    edges:
+      - {from: b_part, to: s_part, style: data}
+      - {from: b_svc, to: s_svc, style: data}
+      - {from: b_book, to: s_book, style: data}
+      - {from: b_ev, to: s_ev, style: data}
+      - {from: b_wk, to: s_wk, style: data}
+      - {from: b_inv, to: s_inv, style: data}
+      - {from: b_prov, to: s_prov, style: data}
+      - {from: s_book, to: s_visits, style: data, exit: right, entry: left}
+      - {from: s_ev, to: s_visits, style: data, exit: right, entry: left}
+      - {from: s_svc, to: s_visits, label: price cap, style: weak, exit: right, entry: top, points: [[750, 280]]}
+      - {from: s_visits, to: s_spend, label: delivered visits, style: data, exit: bottom, entry: left, points: [[750, 632]]}
+      - {from: s_inv, to: s_spend, label: accepted amount, style: data, exit: right, entry: left}
+      - {from: s_part, to: g_budget, label: quarterly budget, style: data, exit: right, entry: left, points: [[1100, 190]]}
+      - {from: s_spend, to: g_budget, label: spend to date, style: data, exit: top, entry: bottom, points: [[960, 300], [1290, 300]]}
+      - {from: s_visits, to: g_rel, label: status per visit, style: data, exit: right, entry: left}
+      - {from: s_visits, to: g_punct, label: per worker, style: data, exit: right, entry: left, points: [[1000, 410], [1000, 530]]}
+      - {from: s_wk, to: g_punct, label: home region, style: weak, exit: right, entry: bottom, points: [[620, 550], [620, 585], [1290, 585]]}
+      - {from: s_inv, to: g_exc, label: flagged invoices, style: data, exit: right, entry: top, points: [[610, 640], [610, 685], [1290, 685]]}
+      - {from: s_prov, to: g_exc, label: provider name, style: weak, exit: right, entry: left}
+    texts:
+      - {id: t_note, label: "Budget forecast = spend to date + in-house visits already booked + invoices at current run rate. Lookups to participants / service_types not all drawn.", x: 40, y: 840, w: 1400, h: 24}
+    legend: true
+
+  # ---------------------------------------------------------------- page 3
+  - id: deployment
+    title: Deployment and identity
+    subtitle: What each script creates, how it authenticates, and where the POC is blocked today
+    zones:
+      - {id: z_dev, label: Developer workstation, x: 40, y: 100, w: 280, h: 520, colour: grey}
+      - {id: z_arm, label: Azure subscription - rg-care-insights-poc, x: 400, y: 100, w: 520, h: 330, colour: blue}
+      - {id: z_fab, label: Microsoft Fabric (not yet provisioned), x: 400, y: 480, w: 520, h: 300, colour: purple}
+      - {id: z_entra, label: Entra ID tenant, x: 1000, y: 100, w: 300, h: 660, colour: red}
+    nodes:
+      - {id: d_infra, label: infra/deploy.ps1, sub: Bicep + pause capacity, kind: step, zone: z_dev, x: 70, y: 150, w: 220}
+      - {id: d_upload, label: infra/upload-data.ps1, sub: azcopy - Entra login, kind: step, zone: z_dev, x: 70, y: 260, w: 220}
+      - {id: d_cap, label: infra/capacity.ps1, sub: status / resume / suspend, kind: step, zone: z_dev, x: 70, y: 370, w: 220}
+      - {id: d_fabric, label: fabric/deploy-fabric.ps1, sub: Fabric REST API, kind: step, zone: z_dev, x: 70, y: 540, w: 220}
+      - {id: a_st, label: Storage account, sub: ADLS Gen2 - raw + lake - TLS 1.2, kind: datastore, zone: z_arm, x: 440, y: 160, w: 200, h: 90}
+      - {id: a_cap, label: Fabric capacity F2, sub: "FAILED: tenant not signed up", kind: service, zone: z_arm, x: 690, y: 300, w: 200}
+      - {id: a_rbac, label: RBAC on storage, sub: Storage Blob Data Contributor, kind: security, zone: z_arm, x: 690, y: 170, w: 200}
+      - {id: f_ws, label: Workspace + lakehouse, sub: care-insights-poc / lh_care, kind: service, zone: z_fab, x: 440, y: 540, w: 200}
+      - {id: f_conn, label: ADLS connections + shortcuts, sub: workspace identity creds, kind: service, zone: z_fab, x: 690, y: 540, w: 200}
+      - {id: f_nb, label: Notebook + run + schedule, sub: RunNotebook job, kind: worker, zone: z_fab, x: 440, y: 670, w: 200}
+      - {id: f_tbl, label: Gold table shortcuts, sub: SQL endpoint, kind: service, zone: z_fab, x: 690, y: 670, w: 200}
+      - {id: e_user, label: itauditor (CLI user), sub: Owner on subscription, kind: actor, zone: z_entra, x: 1090, y: 150, w: 120, h: 80}
+      - {id: e_pbi, label: Power BI Service app, sub: "DISABLED - Fabric runs on it", kind: security, zone: z_entra, x: 1040, y: 300, w: 220, h: 70}
+      - {id: e_admin, label: Fix - Entra admin, sub: enable app + sign up for Fabric, kind: note, zone: z_entra, x: 1040, y: 430, w: 220, h: 70}
+      - {id: e_wsid, label: Workspace identity, sub: service principal per workspace, kind: security, zone: z_entra, x: 1040, y: 540, w: 220}
+    edges:
+      - {from: d_infra, to: a_st, label: az deployment group create, exit: right, entry: left}
+      - {from: d_infra, to: a_cap, label: create + suspend, style: weak, exit: top, entry: right, points: [[180, 88], [960, 88], [960, 332]]}
+      - {from: d_upload, to: a_st, label: raw files + SQL, style: data, exit: right, entry: bottom, points: [[540, 292]]}
+      - {from: d_cap, to: a_cap, label: resume / suspend, style: weak, exit: right, entry: left, points: [[660, 402], [660, 332]]}
+      - {from: d_fabric, to: f_ws, label: REST + Fabric token, exit: right, entry: left}
+      - {from: f_ws, to: f_conn, style: sync}
+      - {from: f_ws, to: f_nb, style: sync}
+      - {from: f_nb, to: f_tbl, style: sync}
+      - {from: f_conn, to: a_st, label: shortcuts, style: data, exit: top, entry: right, points: [[790, 455], [665, 455], [665, 205]]}
+      - {from: e_pbi, to: z_fab, label: token blocked (AADSTS500014), style: async, exit: left, entry: right, points: [[945, 335], [945, 630]]}
+      - {from: e_admin, to: e_pbi, label: unblock, style: weak, exit: top, entry: bottom}
+      - {from: e_user, to: a_rbac, label: role assignments, style: weak, exit: left, entry: right}
+      - {from: e_wsid, to: f_conn, label: credentials, style: weak, exit: left, entry: right}
+    legend: true
+
+  # ---------------------------------------------------------------- page 4
+  - id: devloop
+    title: Same SQL, two engines
+    subtitle: Transform logic is tested on a laptop with DuckDB before it runs on Fabric Spark
+    zones:
+      - {id: z_local, label: Local - no cloud cost, x: 40, y: 100, w: 1440, h: 210, colour: green}
+      - {id: z_cloud, label: Cloud - ADLS Gen2 + Microsoft Fabric, x: 40, y: 450, w: 1440, h: 210, colour: blue}
+    nodes:
+      - {id: gen, label: datagen/generate.py, sub: synthetic files + planted problems, kind: worker, zone: z_local, x: 80, y: 180, w: 210, h: 70}
+      - {id: lraw, label: data/raw, sub: CSV + JSON Lines, kind: datastore, zone: z_local, x: 380, y: 170, w: 160, h: 90}
+      - {id: runl, label: transform/run_local.py, sub: DuckDB + sqlglot (spark > duckdb), kind: worker, zone: z_local, x: 640, y: 180, w: 240, h: 70}
+      - {id: lgold, label: data/lake, sub: silver + gold Parquet, kind: datastore, zone: z_local, x: 980, y: 170, w: 160, h: 90}
+      - {id: dash_l, label: Dashboard, sub: CARE_SOURCE=local, kind: ui, zone: z_local, x: 1240, y: 180, w: 200, h: 70}
+      - {id: sqlf, label: transform/sql/*.sql, sub: Spark SQL - the single source of logic, kind: note, x: 640, y: 350, w: 240, h: 60}
+      - {id: craw, label: ADLS raw, sub: landing zone, kind: datastore, zone: z_cloud, x: 380, y: 520, w: 160, h: 90}
+      - {id: fnb, label: Fabric notebook, sub: Spark SQL on F2 capacity, kind: worker, zone: z_cloud, x: 640, y: 530, w: 240, h: 70}
+      - {id: cgold, label: ADLS lake, sub: bronze / silver / gold Delta, kind: datastore, zone: z_cloud, x: 980, y: 520, w: 160, h: 90}
+      - {id: dash_c, label: Dashboard, sub: CARE_SOURCE=adls, kind: ui, zone: z_cloud, x: 1240, y: 530, w: 200, h: 70}
+    edges:
+      - {from: gen, to: lraw, style: data}
+      - {from: lraw, to: runl, label: bronze, style: data}
+      - {from: runl, to: lgold, label: COPY parquet, style: data}
+      - {from: lgold, to: dash_l, label: read_parquet, style: data}
+      - {from: sqlf, to: runl, label: transpiled, style: weak, exit: top, entry: bottom}
+      - {from: sqlf, to: fnb, label: "as-is (lake/_pipeline)", style: weak, exit: bottom, entry: top}
+      - {from: lraw, to: craw, label: upload-data.ps1, style: data, exit: bottom, entry: top}
+      - {from: craw, to: fnb, label: bronze, style: data}
+      - {from: fnb, to: cgold, label: Delta, style: data}
+      - {from: cgold, to: dash_c, label: delta_scan, style: data}
+    legend: true

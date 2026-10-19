@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Care Insights — Microsoft Fabric + Azure Data Lake POC</title>
+<meta name="description" content="An open lakehouse on Azure Data Lake Storage and Microsoft Fabric that flags under-used and overspent Support at Home budgets, missed and late visits, and provider invoice errors while there is still time to act.">
+<meta property="og:title" content="Care Insights — Microsoft Fabric + Azure Data Lake POC">
+<meta property="og:description" content="Open lakehouse: ADLS Gen2 as the system of record, Fabric as compute, one set of Spark SQL running on Spark and DuckDB, and a code-first dashboard.">
+<meta property="og:image" content="assets/iso/hero.svg">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230f6cbd' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cellipse cx='12' cy='5' rx='9' ry='3'/%3E%3Cpath d='M3 5V19A9 3 0 0 0 21 19V5'/%3E%3Cpath d='M3 12A9 3 0 0 0 21 12'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css?v=1">
+</head>
+<body>
+<main>
+
+<header class="hero">
+  <div class="meta">Proof of concept · care-insights · Microsoft Fabric + Azure Data Lake</div>
+  <h1>Find the budget, visit and invoice problems while there's still time to fix them.</h1>
+  <p class="tagline">An open lakehouse for home-care providers. Rostering, the worker mobile app and provider invoices land in Azure Data Lake Storage; Microsoft Fabric runs a bronze → silver → gold pipeline over them every morning; a code-first dashboard shows who will under-use or overspend their quarterly budget, which visits are being missed, and which invoices shouldn't be paid as-is.</p>
+  <div class="cta-row">
+    <a class="btn btn-primary" href="#demo">Try the interactive demo ↓</a>
+    <a class="btn btn-secondary" href="#cap-2">Architecture ↓</a>
+    <a class="btn btn-secondary" href="assets/diagrams/care-insights.drawio" download>Editable diagrams (.drawio) →</a>
+  </div>
+  <div class="note"><strong>Synthetic data.</strong> Every participant, worker and provider on this page is generated (fictitious IDs, no personal information). Problems were planted on purpose so the pipeline's findings can be checked against a known answer. Budgets, price caps and the carry-over rule are illustrative.</div>
+
+  <figure class="scene hero-scene">
+    <img src="assets/iso/hero.svg?v=1" width="1200" height="760" alt="Isometric scene: four source systems feed a storage landing zone, a Fabric compute platform processes it, and results land in a lake that feeds a dashboard, a SQL endpoint and other engines.">
+  </figure>
+  <ol class="legend-steps">
+    <li><strong>Sources</strong>: CRM, rostering, mobile app, provider invoices</li>
+    <li><strong>ADLS raw</strong>: files as received</li>
+    <li><strong>Fabric</strong>: Spark notebook, compute only</li>
+    <li><strong>ADLS lake</strong>: Delta bronze / silver / gold</li>
+    <li><strong>Consumers</strong>: dashboard, SQL endpoint, any Delta reader</li>
+  </ol>
+</header>
+
+<section class="stats" aria-label="Headline results">
+  <div class="stat"><div class="num">$311k</div><div class="label">at risk of being lost this quarter, flagged with 10 weeks to go</div></div>
+  <div class="stat"><div class="num">4 / 4</div><div class="label">planted chronically-late workers found</div></div>
+  <div class="stat"><div class="num">182</div><div class="label">invoice exceptions, $25k held back</div></div>
+  <div class="stat"><div class="num">13</div><div class="label">SQL steps, one codebase, two engines</div></div>
+  <div class="stat"><div class="num">0</div><div class="label">keys or passwords in the data path</div></div>
+  <div class="stat"><div class="num">~$0.36<span class="small">/h</span></div><div class="label">Fabric F2, only while running (US$)</div></div>
+</section>
+
+<nav class="toc" aria-label="Contents">
+  <a href="#cap-1">1. The problem</a>
+  <a href="#cap-2">2. Open lakehouse</a>
+  <a href="#cap-3">3. Medallion pipeline</a>
+  <a href="#demo">4. Interactive demo</a>
+  <a href="#cap-5">5. Same SQL, two engines</a>
+  <a href="#cap-6">6. Keyless identity</a>
+  <a href="#cap-7">7. What it can be used for</a>
+  <a href="#scoring">Scorecard</a>
+</nav>
+
+<!-- ───────────────────────────────────────────────────────────── -->
+<section id="cap-1" class="capability">
+  <h2><span class="cap-num">1.</span> The problem: found too late</h2>
+  <p>Under <strong>Support at Home</strong>, each participant has a quarterly budget. Unspent money above the carry-over limit is lost to the participant, and overspend has to be absorbed or clawed back. Both are usually discovered after the quarter closes, when nothing can be done. The same data also hides missed and late visits and errors in third-party provider invoices.</p>
+  <p class="approach"><strong>Approach.</strong> Join the three systems that each hold part of the picture (rostering, the worker app's check-ins and provider invoices) into one lakehouse, and answer four questions every morning. The budget forecast isn't a straight line: it's <em>spend to date + in-house visits already booked for the rest of the quarter + provider invoices at their current run rate</em>.</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Question</th><th>Gold table</th><th>What the POC found (synthetic data)</th></tr></thead>
+    <tbody>
+      <tr><td>Who will <strong>under-use</strong> or <strong>overspend</strong> their budget this quarter?</td><td><code>gold_budget_utilisation</code></td><td>76 participants under-used, ~$311k at risk of being lost; 122 forecast over budget</td></tr>
+      <tr><td>Are visits happening, and on time?</td><td><code>gold_visit_reliability</code></td><td>87.5% on time over the last 30 days; 218 missed</td></tr>
+      <tr><td>Which workers or rosters are consistently late?</td><td><code>gold_worker_punctuality</code></td><td>All 4 planted chronically-late workers flagged</td></tr>
+      <tr><td>Which provider invoices should not be paid as-is?</td><td><code>gold_invoice_exceptions</code></td><td>52 duplicates, 124 above price cap (top offender PRV004), 6 unknown participants</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>For scale: in the quarter that just closed, the same rule estimates <strong>$366k</strong> was lost to participants. The difference this time is that the $311k is flagged in October, with ten weeks left to act.</p>
+</section>
+
+<!-- ───────────────────────────────────────────────────────────── -->
+<section id="cap-2" class="capability">
+  <h2><span class="cap-num">2.</span> An open lakehouse: ADLS stores, Fabric computes</h2>
+  <p class="approach"><strong>Approach.</strong> Azure Data Lake Storage Gen2 is the system of record. Every layer (raw files, then bronze, silver and gold Delta tables) lives in your own storage account. Fabric reaches it through <strong>OneLake shortcuts</strong> and does the compute. Pause or remove Fabric and nothing is lost, and Databricks, Synapse, DuckDB or Polars can read the same tables.</p>
+
+  <h3>What's in it</h3>
+  <ul>
+    <li><strong>ADLS Gen2</strong> (hierarchical namespace, TLS 1.2, no public blob access), Australia East, with two containers: <code>raw</code> (landing zone, files as received) and <code>lake</code> (Delta tables plus the pipeline SQL).</li>
+    <li><strong>Fabric F2 capacity</strong>, created paused and resumed only for runs. Workspace, lakehouse <code>lh_care</code>, notebook <code>nb_care_medallion</code>, daily 06:00 AEST schedule.</li>
+    <li><strong>OneLake shortcuts</strong>: <code>Files/raw</code> and <code>Files/lake</code> point at ADLS. <code>Tables/gold_*</code> shortcuts expose gold to the Fabric SQL endpoint without copying data.</li>
+    <li><strong>No Power BI.</strong> The dashboard is a Streamlit app querying gold Delta directly with DuckDB, signed in with Entra ID.</li>
+    <li><strong>Data stays onshore</strong>: storage and capacity both in Australia East.</li>
+  </ul>
+
+  <figure class="diagram">
+    <a href="assets/diagrams/care-insights-p1.drawio.svg" target="_blank" rel="noopener"><img src="assets/diagrams/care-insights-p1.drawio.svg" loading="lazy" alt="Solution architecture diagram: source systems, ADLS raw, Fabric workspace with lakehouse and notebook, ADLS lake with medallion layers, and consumers, plus the Entra identity and capacity."></a>
+    <figcaption>Solution architecture. Click to open full size. It's an editable draw.io SVG: open it in draw.io or the VS Code draw.io extension.</figcaption>
+  </figure>
+
+  <h3>Artifacts</h3>
+  <ul class="links">
+    <li><code>infra/main.bicep</code>: storage account, containers, RBAC and the (optional) Fabric capacity</li>
+    <li><code>infra/deploy.ps1</code>: deploys the Bicep and pauses the capacity immediately</li>
+    <li><code>infra/upload-data.ps1</code>: lands raw files and pipeline SQL with an Entra login, with no keys</li>
+    <li><code>fabric/deploy-fabric.ps1</code>: Fabric REST API for the workspace, lakehouse, connections, shortcuts, notebook, run and schedule</li>
+  </ul>
+</section>
+
+<!-- ───────────────────────────────────────────────────────────── -->
+<section id="cap-3" class="capability">
+  <h2><span class="cap-num">3.</span> Medallion pipeline, checked against a known answer</h2>
+  <p class="approach"><strong>Approach.</strong> The transform logic is plain Spark SQL files in <code>transform/sql</code>, run in order. Bronze keeps raw data as Delta. Silver cleans it: AU <code>dd/MM/yyyy</code> dates, de-duplicated app events, check-ins matched to bookings. Gold answers the four questions. The synthetic generator plants specific problems, and the gold tables are checked against them.</p>
+
+  <figure class="scene">
+    <img src="assets/iso/medallion.svg?v=1" width="1200" height="760" loading="lazy" alt="Isometric scene: a raw storage block feeds a bronze platform with seven tables, a silver platform with nine and a gold platform with four, which feeds four answer blocks: budgets, visits, workers and invoices.">
+  </figure>
+  <ol class="legend-steps">
+    <li><strong>Raw</strong>: 124 CSV / JSONL files</li>
+    <li><strong>Bronze</strong>: 7 tables, as received</li>
+    <li><strong>Silver</strong>: 9 cleaned, conformed tables</li>
+    <li><strong>Gold</strong>: 4 tables, one per question</li>
+    <li><strong>Answers</strong>: budgets, visits, workers, invoices</li>
+  </ol>
+
+  <h3>Planted problem → did the pipeline find it?</h3>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Planted in the source data</th><th>Found in gold</th><th>Result</th></tr></thead>
+    <tbody>
+      <tr><td>4 chronically-late workers (W0016, W0018, W0033, W0043)</td><td>Top 4 by late rate, all flagged <em>needs review</em></td><td><span class="pill good">Found</span></td></tr>
+      <tr><td>~4% of visits missed</td><td>Missed rate per worker and per day ≈ 4%</td><td><span class="pill good">Found</span></td></tr>
+      <tr><td>Provider PRV004 billing above the price cap</td><td>Top above-cap offender by $ at risk</td><td><span class="pill good">Found</span></td></tr>
+      <tr><td>1.5% duplicate invoices, 6 invoices for unknown participants</td><td>52 duplicates and 6 unknown participants in invoice exceptions</td><td><span class="pill good">Found</span></td></tr>
+      <tr><td>1% duplicate app events, 2% missing check-outs, AU date formats</td><td>De-duplicated and parsed in silver; missing check-outs counted per visit</td><td><span class="pill good">Handled</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>The forecast, in the SQL itself</h3>
+<pre><code><span class="c">-- transform/sql/gold/01_budget_utilisation.sql (excerpt)</span>
+visit_spend_aud + invoice_spend_aud + booked_aud
+  + invoice_spend_aud / days_elapsed * (days_in_quarter - days_elapsed)  <span class="k">AS</span> forecast_spend_aud
+...
+<span class="k">CASE</span>
+  <span class="k">WHEN</span> forecast_spend_aud &gt; budget_aud       <span class="k">THEN</span> <span class="s">'Over budget'</span>
+  <span class="k">WHEN</span> forecast_spend_aud &lt; 0.7 * budget_aud <span class="k">THEN</span> <span class="s">'Under-used'</span>
+  <span class="k">ELSE</span> <span class="s">'On track'</span>
+<span class="k">END AS</span> budget_status,
+<span class="c">-- illustrative carry-over: unspent funds up to the greater of $1,000 or 10% of budget</span>
+GREATEST(budget_aud - forecast_spend_aud - GREATEST(1000.0, 0.1 * budget_aud), 0.0) <span class="k">AS</span> est_funds_lost_aud</code></pre>
+
+  <figure class="diagram">
+    <a href="assets/diagrams/care-insights-p2.drawio.svg" target="_blank" rel="noopener"><img src="assets/diagrams/care-insights-p2.drawio.svg" loading="lazy" alt="Medallion lineage diagram: seven bronze tables, nine silver SQL steps and four gold tables, with what each step does."></a>
+    <figcaption>Medallion lineage: every bronze table, silver step and gold output. Editable draw.io SVG.</figcaption>
+  </figure>
+</section>
+
+<!-- ───────────────────────────────────────────────────────────── -->
+<section id="demo" class="capability">
+  <h2><span class="cap-num">4.</span> Interactive demo: the gold tables</h2>
+  <p class="approach"><strong>Approach.</strong> These charts are drawn in your browser from the pipeline's actual gold output (exported to a small JSON file, as of 18 Oct 2026). Pick a region; hover any mark for its numbers. The production dashboard is the Streamlit app further down, which queries the same tables live with DuckDB.</p>
+
+  <div class="demo" id="demo-app">
+    <div class="demo-bar">
+      <div class="tabs" role="tablist" aria-label="Dashboard tabs">
+        <button role="tab" id="t-budget" aria-controls="p-budget" aria-selected="true">Budgets</button>
+        <button role="tab" id="t-visits" aria-controls="p-visits" aria-selected="false" tabindex="-1">Visits</button>
+        <button role="tab" id="t-workers" aria-controls="p-workers" aria-selected="false" tabindex="-1">Workers</button>
+        <button role="tab" id="t-invoices" aria-controls="p-invoices" aria-selected="false" tabindex="-1">Invoices</button>
+      </div>
+      <label>Region <select id="region"><option value="">All regions</option></select></label>
+    </div>
+
+    <div class="panel" id="p-budget" role="tabpanel" aria-labelledby="t-budget">
+      <div class="kpis" id="k-budget"></div>
+      <div class="charts two">
+        <div class="chart"><h4>Where participants will land this quarter</h4><p class="sub">Participants by forecast spend, % of budget (2026-Q4)</p><div id="c-hist"></div><div class="chart-legend" id="l-hist"></div></div>
+        <div class="chart"><h4>Funds at risk of being lost, by region</h4><p class="sub">Estimated, above the carry-over limit</p><div id="c-region"></div></div>
+      </div>
+      <h4 style="margin-top:1.25rem">Action list</h4>
+      <p class="sub" style="font-size:.82rem;color:var(--text-muted);margin:0">Under-used: call to review the care plan before funds are lost. Over budget: review bookings before the quarter ends.</p>
+      <div class="table-wrap"><table id="tb-budget"></table></div>
+    </div>
+
+    <div class="panel" id="p-visits" role="tabpanel" aria-labelledby="t-visits" hidden>
+      <div class="kpis" id="k-visits"></div>
+      <div class="charts">
+        <div class="chart"><h4>On-time visit rate</h4><p class="sub">Share of scheduled visits delivered on time, 7-day rolling</p><div id="c-ontime"></div></div>
+        <div class="chart"><h4>Missed visits per day</h4><p class="sub">Scheduled but never checked in</p><div id="c-missed"></div></div>
+      </div>
+    </div>
+
+    <div class="panel" id="p-workers" role="tabpanel" aria-labelledby="t-workers" hidden>
+      <div class="kpis" id="k-workers"></div>
+      <div class="charts">
+        <div class="chart"><h4>Late rate by worker</h4><p class="sub">Top 15 by share of visits started more than 15 minutes late; dashed line = 20% review threshold</p><div id="c-workers"></div><div class="chart-legend" id="l-workers"></div></div>
+      </div>
+    </div>
+
+    <div class="panel" id="p-invoices" role="tabpanel" aria-labelledby="t-invoices" hidden>
+      <div class="kpis" id="k-invoices"></div>
+      <div class="charts two">
+        <div class="chart"><h4>$ at risk by provider</h4><p class="sub">Top 8 providers, stacked by exception type</p><div id="c-prov"></div><div class="chart-legend" id="l-prov"></div></div>
+        <div class="chart"><h4>Exceptions by type</h4><p class="sub">Count and $ held back</p><div id="c-types"></div></div>
+      </div>
+      <p class="sub" style="font-size:.8rem;color:var(--text-muted);margin:.75rem 0 0">Invoices aren't tied to a region, so the region filter doesn't apply here.</p>
+    </div>
+
+    <div class="demo-foot">Source: <code>gold_*</code> tables from the DuckDB test run of the same SQL the Fabric notebook runs. Synthetic data.</div>
+  </div>
+  <div id="tip" role="tooltip"></div>
+
+  <h3>The production dashboard: Streamlit + DuckDB</h3>
+  <p>A code-first app (<code>app/dashboard.py</code>) with KPI tiles, the budget distribution, funds at risk by region and a ranked action list, plus Visits, Workers and Invoices tabs. With <code>CARE_SOURCE=adls</code> it reads gold Delta straight from ADLS (<code>delta_scan('abfss://lake@…/gold/…')</code>) using the viewer's Entra login, with no gateway, extract or refresh schedule.</p>
+  <figure class="shot">
+    <img src="assets/img/dashboard-budgets.png" width="1440" height="1110" loading="lazy" alt="Screenshot of the Streamlit dashboard showing quarter KPIs, a histogram of forecast spend as a percent of budget, funds at risk by region and an action list.">
+    <figcaption>The Streamlit dashboard, Budgets tab, 2026-Q4.</figcaption>
+  </figure>
+</section>
+
+<!-- ───────────────────────────────────────────────────────────── -->
+<section id="cap-5" class="capability">
+  <h2><span class="cap-num">5.</span> Same SQL, two engines: test on a laptop, run on Fabric</h2>
+  <p class="approach"><strong>Approach.</strong> The Spark SQL files are the single source of transform logic. In Fabric, the notebook reads them from <code>lake/_pipeline/sql</code> and runs them on Spark. On a laptop, <code>transform/run_local.py</code> transpiles the <em>same files</em> to DuckDB with <a href="https://github.com/tobymao/sqlglot" target="_blank" rel="noopener">sqlglot</a> and runs them in seconds, with no cloud cost, before anything ships.</p>
+
+  <figure class="scene">
+    <img src="assets/iso/two-engines.svg?v=1" width="1200" height="760" loading="lazy" alt="Isometric scene: one SQL file block feeds two lanes: a laptop that writes local tables and a Fabric compute platform that writes the cloud lake.">
+  </figure>
+  <ol class="legend-steps">
+    <li><strong>transform/sql</strong>: 13 Spark SQL files</li>
+    <li><strong>Laptop</strong>: sqlglot → DuckDB, all 13 steps in ~1 second</li>
+    <li><strong>Local Parquet</strong>: for testing and review</li>
+    <li><strong>Fabric Spark</strong>: notebook, scheduled daily</li>
+    <li><strong>ADLS lake</strong>: Delta, the system of record</li>
+  </ol>
+
+<pre><code><span class="c"># transform/run_local.py (core loop)</span>
+<span class="k">for</span> f <span class="k">in</span> sorted((SQL / layer).glob(<span class="s">"*.sql"</span>)):
+    spark_sql = f.read_text().replace(<span class="s">"{{AS_OF_DATE}}"</span>, a.as_of)
+    duck_sql = sqlglot.transpile(spark_sql, read=<span class="s">"spark"</span>, write=<span class="s">"duckdb"</span>)[0]
+    ...
+    con.execute(<span class="s">f"COPY {table} TO '{out.as_posix()}' (FORMAT parquet)"</span>)</code></pre>
+  <p>Two portability lessons are now in the SQL: use <code>TIMESTAMPDIFF(SECOND, …)</code> rather than <code>UNIX_TIMESTAMP</code> arithmetic, and wrap date-plus-interval in <code>CAST(… AS DATE)</code>, because DuckDB returns a timestamp there.</p>
+
+  <figure class="diagram">
+    <a href="assets/diagrams/care-insights-p4.drawio.svg" target="_blank" rel="noopener"><img src="assets/diagrams/care-insights-p4.drawio.svg" loading="lazy" alt="Diagram: the same SQL files run locally on DuckDB and in Fabric on Spark."></a>
+    <figcaption>Same SQL, two engines. Editable draw.io SVG.</figcaption>
+  </figure>
+</section>
+
+<!-- ───────────────────────────────────────────────────────────── -->
+<section id="cap-6" class="capability">
+  <h2><span class="cap-num">6.</span> Keyless identity, and an honest status</h2>
+  <p class="approach"><strong>Approach.</strong> Everything authenticates with Entra ID. People upload data and read the dashboard with their own login (<code>az login</code>, then DuckDB's <code>credential_chain</code>). Fabric reaches ADLS with its <strong>workspace identity</strong>, granted <em>Storage Blob Data Contributor</em> through RBAC. Account keys exist only as a fallback flag (<code>-AuthMode Key</code>).</p>
+
+  <figure class="scene">
+    <img src="assets/iso/identity.svg?v=1" width="1200" height="760" loading="lazy" alt="Isometric scene: a person signs in through an Entra ID shield, which grants access to storage and the dashboard; the path to Fabric is grey and dashed with a warning sign, meaning it is blocked.">
+  </figure>
+  <ol class="legend-steps">
+    <li><strong>You</strong>: Entra sign-in, no keys</li>
+    <li><strong>Entra ID</strong>: issues tokens, RBAC on storage</li>
+    <li><strong>ADLS</strong>: upload and read <span class="pill good">working</span></li>
+    <li><strong>Dashboard</strong>: DuckDB → ADLS <span class="pill good">verified</span></li>
+    <li><strong>Fabric</strong>: token refused <span class="pill warning">pending</span></li>
+  </ol>
+
+  <h3>Where it's up to</h3>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Piece</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td>Resource group, ADLS Gen2 account (Australia East)</td><td><span class="pill good">Deployed</span></td></tr>
+      <tr><td>Synthetic data in <code>raw/</code> (124 files), pipeline SQL in <code>lake/_pipeline/</code></td><td><span class="pill good">Uploaded</span></td></tr>
+      <tr><td>All 13 SQL steps + dashboard; DuckDB → ADLS Entra auth</td><td><span class="pill good">Tested</span></td></tr>
+      <tr><td>Fabric capacity, workspace, notebook run</td><td><span class="pill warning">Scripted; waiting on tenant enablement</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>The Fabric run is waiting on one tenant-level switch. Fabric depends on the <em>Power BI Service</em> enterprise app (even though this design uses no Power BI reports), and in the test tenant that app is disabled. An Entra administrator enables it, someone signs in once at app.fabric.microsoft.com, and <code>fabric/deploy-fabric.ps1 -Schedule</code> does the rest. Workspace creation can stay locked down to named people in Fabric's tenant settings.</p>
+
+  <figure class="diagram">
+    <a href="assets/diagrams/care-insights-p3.drawio.svg" target="_blank" rel="noopener"><img src="assets/diagrams/care-insights-p3.drawio.svg" loading="lazy" alt="Deployment and identity diagram: scripts, what they create, how each signs in, and where the tenant block sits."></a>
+    <figcaption>Deployment and identity: what each script creates and how it signs in. Editable draw.io SVG.</figcaption>
+  </figure>
+</section>
+
+<!-- ───────────────────────────────────────────────────────────── -->
+<section id="cap-7" class="capability">
+  <h2><span class="cap-num">7.</span> What it can be used for</h2>
+  <p>The POC answers four questions for one program, but its parts are general: land files from systems you don't control, keep them in your own storage, clean them with SQL you can test on a laptop, and put a ranked action list in front of the people who can act on it.</p>
+
+  <div class="cards">
+    <div class="card"><div class="who">Care managers</div><h4>Budget conversations before quarter end</h4><p>A weekly list of participants heading for under-use (funds at risk) or overspend, ranked by dollars, with the bookings already in the diary.</p></div>
+    <div class="card"><div class="who">Rostering &amp; operations</div><h4>Missed and late visits</h4><p>On-time rate by region and service, plus workers or rosters that are consistently late, so the fix is a roster change rather than a complaint.</p></div>
+    <div class="card"><div class="who">Finance / accounts payable</div><h4>Invoice exceptions before payment</h4><p>Duplicates, rates above the price cap and invoices for unknown participants, held back with the dollar amount at risk.</p></div>
+    <div class="card"><div class="who">Quality &amp; compliance</div><h4>Evidence for reporting</h4><p>Delivered-versus-scheduled care and a full lineage from raw file to figure, to support quality reporting and audits.</p></div>
+    <div class="card"><div class="who">Other funded programs</div><h4>Same pattern, different rules</h4><p>NDIS plan management, home care packages, or any "budget vs booked vs actual" domain such as grants, projects or field services. Change the gold SQL, not the platform.</p></div>
+    <div class="card"><div class="who">Data teams</div><h4>A Fabric on-ramp that isn't lock-in</h4><p>Adopt Fabric for compute and scheduling while data stays open Delta in ADLS. Other engines read the same tables, and Fabric can be paused or swapped.</p></div>
+  </div>
+
+  <h3>From POC to production</h3>
+  <ul>
+    <li>Swap synthetic files for real extracts on the same folder contract: Data Factory, Eventstream for the mobile app, or SFTP → <code>raw/</code>.</li>
+    <li>Incremental loads with Delta <code>MERGE</code> on booking, event and invoice keys instead of full overwrite.</li>
+    <li>Data-quality expectations as a gold table (row counts, rejected rows), shown in the dashboard.</li>
+    <li>Purview scanning for lineage and classification once real personal information lands.</li>
+    <li>Dashboard on Azure Container Apps behind Entra ID (Easy Auth).</li>
+  </ul>
+</section>
+
+<!-- ───────────────────────────────────────────────────────────── -->
+<section id="scoring" class="capability">
+  <h2>Capability scorecard</h2>
+  <div class="table-wrap">
+  <table class="scorecard">
+    <thead><tr><th>Capability</th><th>Status</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>Infrastructure as code</td><td><span class="pill good">Demonstrated</span></td><td>Bicep for storage, RBAC and capacity; capacity paused on creation; idempotent re-runs</td></tr>
+      <tr><td>Open lakehouse on ADLS</td><td><span class="pill good">Demonstrated</span></td><td>Raw and lake containers deployed and loaded; every layer open Delta/Parquet</td></tr>
+      <tr><td>Medallion pipeline</td><td><span class="pill good">Demonstrated</span></td><td>13 SQL steps; every planted problem found in gold</td></tr>
+      <tr><td>Same SQL on two engines</td><td><span class="pill good">Demonstrated</span></td><td>sqlglot Spark → DuckDB locally; Fabric notebook runs the files as-is</td></tr>
+      <tr><td>Code-first dashboard</td><td><span class="pill good">Demonstrated</span></td><td>Streamlit + DuckDB + Plotly, local or straight from ADLS with Entra auth</td></tr>
+      <tr><td>Keyless identity</td><td><span class="pill good">Demonstrated</span></td><td>Entra login for people; workspace identity + RBAC scripted for Fabric</td></tr>
+      <tr><td>Fabric run + schedule</td><td><span class="pill warning">Scripted, pending</span></td><td>REST deployment ready; waits on the tenant enabling Fabric</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>Cost</h3>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Item</th><th>Approximate cost</th></tr></thead>
+    <tbody>
+      <tr><td>ADLS Gen2, ~15 MB</td><td>Cents per month</td></tr>
+      <tr><td>Fabric F2 capacity</td><td>~US$0.36/hour, <strong>only while running</strong> (~US$263/month if left on); paused by default</td></tr>
+      <tr><td>Dashboard</td><td>Free locally; ~US$10–20/month on Azure Container Apps</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<footer>
+  <div class="footer-links">
+    <div>
+      <h4>Diagrams</h4>
+      <ul>
+        <li><a href="assets/diagrams/care-insights-p1.drawio.svg" target="_blank" rel="noopener">Solution architecture</a></li>
+        <li><a href="assets/diagrams/care-insights-p2.drawio.svg" target="_blank" rel="noopener">Medallion lineage</a></li>
+        <li><a href="assets/diagrams/care-insights-p3.drawio.svg" target="_blank" rel="noopener">Deployment &amp; identity</a></li>
+        <li><a href="assets/diagrams/care-insights-p4.drawio.svg" target="_blank" rel="noopener">Same SQL, two engines</a></li>
+        <li><a href="assets/diagrams/care-insights.drawio" download>All pages (.drawio)</a></li>
+      </ul>
+    </div>
+    <div>
+      <h4>Built with</h4>
+      <ul>
+        <li>Azure Data Lake Storage Gen2 · Bicep</li>
+        <li>Microsoft Fabric: lakehouse, Spark notebook, OneLake shortcuts</li>
+        <li>Delta Lake · Spark SQL · sqlglot · DuckDB</li>
+        <li>Streamlit · Plotly · Entra ID</li>
+      </ul>
+    </div>
+    <div>
+      <h4>Data</h4>
+      <ul>
+        <li><a href="assets/data/gold.json">Gold aggregates (JSON)</a></li>
+        <li>Synthetic: 400 participants, 60 workers, 15 providers, Jul–Dec 2026</li>
+      </ul>
+    </div>
+  </div>
+  <p>Care Insights is a proof of concept with synthetic data. Program rules shown are illustrative; confirm them against current Support at Home guidance before using this for real decisions. Not affiliated with or endorsed by Microsoft. Hosted on Cloudflare Pages.</p>
+</footer>
+
+</main>
+<script src="app.js?v=1" defer></script>
+</body>
+</html>

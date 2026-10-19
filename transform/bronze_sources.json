@@ -1,0 +1,10 @@
+{
+  "_comment": "Raw landing paths (relative to the 'raw' container) loaded into bronze. Shared by the Fabric notebook and the local runner.",
+  "participants":  {"format": "csv",  "path": "reference/participants.csv"},
+  "workers":       {"format": "csv",  "path": "reference/workers.csv"},
+  "providers":     {"format": "csv",  "path": "reference/providers.csv"},
+  "service_types": {"format": "csv",  "path": "reference/service_types.csv"},
+  "bookings":      {"format": "csv",  "path": "scheduling/bookings/*.csv"},
+  "visit_events":  {"format": "json", "path": "mobile/visit_events/*/*/*/events.jsonl"},
+  "invoices":      {"format": "csv",  "path": "finance/invoices/*.csv"}
+}

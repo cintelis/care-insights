@@ -1,0 +1,5 @@
+.venv/
+data/
+.poc-state.json
+__pycache__/
+*.pyc
