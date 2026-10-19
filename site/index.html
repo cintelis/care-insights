@@ -9,7 +9,7 @@
 <meta property="og:description" content="Open lakehouse: ADLS Gen2 as the system of record, Fabric as compute, one set of Spark SQL running on Spark and DuckDB, and a code-first dashboard.">
 <meta property="og:image" content="assets/iso/hero.svg">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230f6cbd' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cellipse cx='12' cy='5' rx='9' ry='3'/%3E%3Cpath d='M3 5V19A9 3 0 0 0 21 19V5'/%3E%3Cpath d='M3 12A9 3 0 0 0 21 12'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="styles.css?v=1">
+<link rel="stylesheet" href="styles.css?v=2">
 </head>
 <body>
 <main>
@@ -20,6 +20,7 @@
   <p class="tagline">An open lakehouse for home-care providers. Rostering, the worker mobile app and provider invoices land in Azure Data Lake Storage; Microsoft Fabric runs a bronze → silver → gold pipeline over them every morning; a code-first dashboard shows who will under-use or overspend their quarterly budget, which visits are being missed, and which invoices shouldn't be paid as-is.</p>
   <div class="cta-row">
     <a class="btn btn-primary" href="#demo">Try the interactive demo ↓</a>
+    <a class="btn btn-secondary" href="https://github.com/cintelis/care-insights" target="_blank" rel="noopener">GitHub repository →</a>
     <a class="btn btn-secondary" href="#cap-2">Architecture ↓</a>
     <a class="btn btn-secondary" href="assets/diagrams/care-insights.drawio" download>Editable diagrams (.drawio) →</a>
   </div>
@@ -66,10 +67,10 @@
   <table>
     <thead><tr><th>Question</th><th>Gold table</th><th>What the POC found (synthetic data)</th></tr></thead>
     <tbody>
-      <tr><td>Who will <strong>under-use</strong> or <strong>overspend</strong> their budget this quarter?</td><td><code>gold_budget_utilisation</code></td><td>76 participants under-used, ~$311k at risk of being lost; 122 forecast over budget</td></tr>
-      <tr><td>Are visits happening, and on time?</td><td><code>gold_visit_reliability</code></td><td>87.5% on time over the last 30 days; 218 missed</td></tr>
-      <tr><td>Which workers or rosters are consistently late?</td><td><code>gold_worker_punctuality</code></td><td>All 4 planted chronically-late workers flagged</td></tr>
-      <tr><td>Which provider invoices should not be paid as-is?</td><td><code>gold_invoice_exceptions</code></td><td>52 duplicates, 124 above price cap (top offender PRV004), 6 unknown participants</td></tr>
+      <tr><td>Who will <strong>under-use</strong> or <strong>overspend</strong> their budget this quarter?</td><td><a href="https://github.com/cintelis/care-insights/blob/main/transform/sql/gold/01_budget_utilisation.sql" target="_blank" rel="noopener"><code>gold_budget_utilisation</code></a></td><td>76 participants under-used, ~$311k at risk of being lost; 122 forecast over budget</td></tr>
+      <tr><td>Are visits happening, and on time?</td><td><a href="https://github.com/cintelis/care-insights/blob/main/transform/sql/gold/02_visit_reliability.sql" target="_blank" rel="noopener"><code>gold_visit_reliability</code></a></td><td>87.5% on time over the last 30 days; 218 missed</td></tr>
+      <tr><td>Which workers or rosters are consistently late?</td><td><a href="https://github.com/cintelis/care-insights/blob/main/transform/sql/gold/03_worker_punctuality.sql" target="_blank" rel="noopener"><code>gold_worker_punctuality</code></a></td><td>All 4 planted chronically-late workers flagged</td></tr>
+      <tr><td>Which provider invoices should not be paid as-is?</td><td><a href="https://github.com/cintelis/care-insights/blob/main/transform/sql/gold/04_invoice_exceptions.sql" target="_blank" rel="noopener"><code>gold_invoice_exceptions</code></a></td><td>52 duplicates, 124 above price cap (top offender PRV004), 6 unknown participants</td></tr>
     </tbody>
   </table>
   </div>
@@ -95,12 +96,12 @@
     <figcaption>Solution architecture. Click to open full size. It's an editable draw.io SVG: open it in draw.io or the VS Code draw.io extension.</figcaption>
   </figure>
 
-  <h3>Artifacts</h3>
+  <h3>Demonstrable artifacts</h3>
   <ul class="links">
-    <li><code>infra/main.bicep</code>: storage account, containers, RBAC and the (optional) Fabric capacity</li>
-    <li><code>infra/deploy.ps1</code>: deploys the Bicep and pauses the capacity immediately</li>
-    <li><code>infra/upload-data.ps1</code>: lands raw files and pipeline SQL with an Entra login, with no keys</li>
-    <li><code>fabric/deploy-fabric.ps1</code>: Fabric REST API for the workspace, lakehouse, connections, shortcuts, notebook, run and schedule</li>
+    <li><a href="https://github.com/cintelis/care-insights/blob/main/infra/main.bicep" target="_blank" rel="noopener"><code>infra/main.bicep</code></a>: storage account, containers, RBAC and the (optional) Fabric capacity</li>
+    <li><a href="https://github.com/cintelis/care-insights/blob/main/infra/deploy.ps1" target="_blank" rel="noopener"><code>infra/deploy.ps1</code></a>: deploys the Bicep and pauses the capacity immediately</li>
+    <li><a href="https://github.com/cintelis/care-insights/blob/main/infra/upload-data.ps1" target="_blank" rel="noopener"><code>infra/upload-data.ps1</code></a>: lands raw files and pipeline SQL with an Entra login, with no keys</li>
+    <li><a href="https://github.com/cintelis/care-insights/blob/main/fabric/deploy-fabric.ps1" target="_blank" rel="noopener"><code>fabric/deploy-fabric.ps1</code></a>: Fabric REST API for the workspace, lakehouse, connections, shortcuts, notebook, run and schedule</li>
   </ul>
 </section>
 
@@ -151,6 +152,15 @@ GREATEST(budget_aud - forecast_spend_aud - GREATEST(1000.0, 0.1 * budget_aud), 0
     <a href="assets/diagrams/care-insights-p2.drawio.svg" target="_blank" rel="noopener"><img src="assets/diagrams/care-insights-p2.drawio.svg" loading="lazy" alt="Medallion lineage diagram: seven bronze tables, nine silver SQL steps and four gold tables, with what each step does."></a>
     <figcaption>Medallion lineage: every bronze table, silver step and gold output. Editable draw.io SVG.</figcaption>
   </figure>
+
+  <h3>Demonstrable artifacts</h3>
+  <ul class="links">
+    <li><a href="https://github.com/cintelis/care-insights/blob/main/datagen/generate.py" target="_blank" rel="noopener"><code>datagen/generate.py</code></a>: synthetic source files with the planted problems (seeded, standard library only)</li>
+    <li><a href="https://github.com/cintelis/care-insights/blob/main/transform/bronze_sources.json" target="_blank" rel="noopener"><code>transform/bronze_sources.json</code></a>: which raw paths load into which bronze table</li>
+    <li><a href="https://github.com/cintelis/care-insights/tree/main/transform/sql/silver" target="_blank" rel="noopener"><code>transform/sql/silver</code></a>: 9 cleaning and conforming steps</li>
+    <li><a href="https://github.com/cintelis/care-insights/tree/main/transform/sql/gold" target="_blank" rel="noopener"><code>transform/sql/gold</code></a>: the 4 gold tables, one per question</li>
+    <li><a href="https://github.com/cintelis/care-insights/blob/main/fabric/nb_care_medallion.py" target="_blank" rel="noopener"><code>fabric/nb_care_medallion.py</code></a>: the Fabric notebook (Git source format) that runs the SQL on Spark</li>
+  </ul>
 </section>
 
 <!-- ───────────────────────────────────────────────────────────── -->
@@ -209,7 +219,7 @@ GREATEST(budget_aud - forecast_spend_aud - GREATEST(1000.0, 0.1 * budget_aud), 0
   <div id="tip" role="tooltip"></div>
 
   <h3>The production dashboard: Streamlit + DuckDB</h3>
-  <p>A code-first app (<code>app/dashboard.py</code>) with KPI tiles, the budget distribution, funds at risk by region and a ranked action list, plus Visits, Workers and Invoices tabs. With <code>CARE_SOURCE=adls</code> it reads gold Delta straight from ADLS (<code>delta_scan('abfss://lake@…/gold/…')</code>) using the viewer's Entra login, with no gateway, extract or refresh schedule.</p>
+  <p>A code-first app (<a href="https://github.com/cintelis/care-insights/blob/main/app/dashboard.py" target="_blank" rel="noopener"><code>app/dashboard.py</code></a>) with KPI tiles, the budget distribution, funds at risk by region and a ranked action list, plus Visits, Workers and Invoices tabs. With <code>CARE_SOURCE=adls</code> it reads gold Delta straight from ADLS (<code>delta_scan('abfss://lake@…/gold/…')</code>) using the viewer's Entra login, with no gateway, extract or refresh schedule.</p>
   <figure class="shot">
     <img src="assets/img/dashboard-budgets.png" width="1440" height="1110" loading="lazy" alt="Screenshot of the Streamlit dashboard showing quarter KPIs, a histogram of forecast spend as a percent of budget, funds at risk by region and an action list.">
     <figcaption>The Streamlit dashboard, Budgets tab, 2026-Q4.</figcaption>
@@ -244,6 +254,13 @@ GREATEST(budget_aud - forecast_spend_aud - GREATEST(1000.0, 0.1 * budget_aud), 0
     <a href="assets/diagrams/care-insights-p4.drawio.svg" target="_blank" rel="noopener"><img src="assets/diagrams/care-insights-p4.drawio.svg" loading="lazy" alt="Diagram: the same SQL files run locally on DuckDB and in Fabric on Spark."></a>
     <figcaption>Same SQL, two engines. Editable draw.io SVG.</figcaption>
   </figure>
+
+  <h3>Demonstrable artifacts</h3>
+  <ul class="links">
+    <li><a href="https://github.com/cintelis/care-insights/blob/main/transform/run_local.py" target="_blank" rel="noopener"><code>transform/run_local.py</code></a>: transpiles and runs every step on DuckDB, writing Parquet</li>
+    <li><a href="https://github.com/cintelis/care-insights/tree/main/transform/sql" target="_blank" rel="noopener"><code>transform/sql</code></a>: the single source of transform logic, shared by both engines</li>
+    <li><a href="https://github.com/cintelis/care-insights/blob/main/fabric/nb_care_medallion.py" target="_blank" rel="noopener"><code>fabric/nb_care_medallion.py</code></a>: the Spark side, reading the same files from <code>lake/_pipeline/sql</code></li>
+  </ul>
 </section>
 
 <!-- ───────────────────────────────────────────────────────────── -->
@@ -280,6 +297,14 @@ GREATEST(budget_aud - forecast_spend_aud - GREATEST(1000.0, 0.1 * budget_aud), 0
     <a href="assets/diagrams/care-insights-p3.drawio.svg" target="_blank" rel="noopener"><img src="assets/diagrams/care-insights-p3.drawio.svg" loading="lazy" alt="Deployment and identity diagram: scripts, what they create, how each signs in, and where the tenant block sits."></a>
     <figcaption>Deployment and identity: what each script creates and how it signs in. Editable draw.io SVG.</figcaption>
   </figure>
+
+  <h3>Demonstrable artifacts</h3>
+  <ul class="links">
+    <li><a href="https://github.com/cintelis/care-insights/blob/main/infra/main.bicep" target="_blank" rel="noopener"><code>infra/main.bicep</code></a>: RBAC role assignment for the deploying user; storage with public blob access off</li>
+    <li><a href="https://github.com/cintelis/care-insights/blob/main/fabric/deploy-fabric.ps1" target="_blank" rel="noopener"><code>fabric/deploy-fabric.ps1</code></a>: provisions the workspace identity, grants it storage RBAC, creates the ADLS connections</li>
+    <li><a href="https://github.com/cintelis/care-insights/blob/main/app/dashboard.py" target="_blank" rel="noopener"><code>app/dashboard.py</code></a>: DuckDB <code>credential_chain</code> with the Azure CLI login, no stored keys</li>
+    <li><a href="https://github.com/cintelis/care-insights/blob/main/infra/capacity.ps1" target="_blank" rel="noopener"><code>infra/capacity.ps1</code></a>: <code>status</code> / <code>resume</code> / <code>suspend</code> the capacity</li>
+  </ul>
 </section>
 
 <!-- ───────────────────────────────────────────────────────────── -->
@@ -340,6 +365,18 @@ GREATEST(budget_aud - forecast_spend_aud - GREATEST(1000.0, 0.1 * budget_aud), 0
 <footer>
   <div class="footer-links">
     <div>
+      <h4>GitHub</h4>
+      <ul>
+        <li><a href="https://github.com/cintelis/care-insights" target="_blank" rel="noopener">Repository home</a></li>
+        <li><a href="https://github.com/cintelis/care-insights/blob/main/README.md" target="_blank" rel="noopener">README</a></li>
+        <li><a href="https://github.com/cintelis/care-insights/tree/main/transform/sql" target="_blank" rel="noopener">Pipeline SQL</a></li>
+        <li><a href="https://github.com/cintelis/care-insights/tree/main/infra" target="_blank" rel="noopener">Infrastructure (Bicep, scripts)</a></li>
+        <li><a href="https://github.com/cintelis/care-insights/tree/main/fabric" target="_blank" rel="noopener">Fabric notebook &amp; deployment</a></li>
+        <li><a href="https://github.com/cintelis/care-insights/blob/main/app/dashboard.py" target="_blank" rel="noopener">Dashboard</a></li>
+        <li><a href="https://github.com/cintelis/care-insights/blob/main/docs/diagrams/care-insights.yaml" target="_blank" rel="noopener">Diagram source (YAML)</a></li>
+      </ul>
+    </div>
+    <div>
       <h4>Diagrams</h4>
       <ul>
         <li><a href="assets/diagrams/care-insights-p1.drawio.svg" target="_blank" rel="noopener">Solution architecture</a></li>
@@ -370,6 +407,6 @@ GREATEST(budget_aud - forecast_spend_aud - GREATEST(1000.0, 0.1 * budget_aud), 0
 </footer>
 
 </main>
-<script src="app.js?v=1" defer></script>
+<script src="app.js?v=2" defer></script>
 </body>
 </html>
